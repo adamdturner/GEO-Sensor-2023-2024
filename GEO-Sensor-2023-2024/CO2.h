@@ -21,6 +21,7 @@ class CO2 {
          // We want to do our own forced calibration
          // parameter is 'uint16_t reference'
 
+         // code not compiling when the constructor is uncommented. Haven't figured out why this code doesn't work
     CO2() { // Constructor
 //        if (!scd30.selfCalibrationEnabled(false)){
 //          Serial.println("Failed to disable self calibration");
@@ -35,14 +36,14 @@ class CO2 {
 //        scd30.forceRecalibrationWithReference(550);
     }
 
-    
+    // function that returns one CO2 raw measurement
     double measure() {
-        double ppm;
+        double ppmRaw = 0.00;
         if (scd30.dataReady()) {
           if (!scd30.read()) return 0.00;
-          ppm = scd30.CO2;
+          ppmRaw = scd30.CO2;
         }
-      return ppm;
+      return ppmRaw;
     }
 };
 

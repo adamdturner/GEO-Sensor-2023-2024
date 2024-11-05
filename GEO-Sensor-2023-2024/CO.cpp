@@ -9,7 +9,7 @@
 #include "CO.h"
 
 // Returns analogRead() value from the CO sensor
-// 128 is just an arbitrary number that we picked. It could be 50, 100, 200 or any number in between. We just wanted 
+// 128 is just an arbitrary number that we picked. It could be 50, 100, 200 or any other number. We just wanted 
 // to collect enough readings to average them, in case one random reading was a malfunction it won't affect everything.
 double CO::measure() {
   Vavg = 0;

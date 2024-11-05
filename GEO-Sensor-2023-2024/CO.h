@@ -15,12 +15,14 @@
 
 class CO {
   public:
-    int vgas = 0; //Analog pin, Pin #1 on sensor
-    int vtemp = 1; //Analog pin, temperature sensor for CO
+    int vgas = 0; //Analog pin, Pin #1 on sensor (this is the pin that we use to get the CO reading. use analogRead(vgas); )
+    int vtemp = 1; //Analog pin, temperature sensor for CO (we haven't been using this)
 
+    // variables used in the measure function
     double Vavg = 0;
     double result = 0;
-    
+
+    // function that returns one CO raw measurement
     double measure();
 };
 

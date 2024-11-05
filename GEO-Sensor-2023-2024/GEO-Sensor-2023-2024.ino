@@ -76,21 +76,24 @@ volatile int waitDebounce = 0;
 volatile int measureTime = 150; //Every 15 is one second
 
 
-// Calibrated parameters for mapping the CO and CO2 values
+// Calibrated parameters for mapping the CO values
 double calibratedInterceptCO = 0;  
 double calibratedSlopeCO = 11.673;
-double coZero = 497.7;    // zero value, subtract this from coRaw to shift the graph over before multiplying the slope and adding the intercept
+// zero value, subtract this from coRaw to shift the graph over before multiplying the slope and adding the intercept
+double coZero = 497.7;    
+
+// Calibrated parameters for mapping the CO2 values
 double calibratedInterceptCO2 = 35.02;
 double calibratedSlopeCO2 = 0.8504;
 
 
 // Global Variables for the second counter (to possibly replace the time clock)
-// Second counter last update time
-static unsigned long lastSecondUpdate = 0;
-
-// Seconds since entering the measure state (so far this only resets to zero when the arduino is powered off. If you end a 
-// measurement and start a new one it will just start counting from where it left off)
-static unsigned long secondsCounter = 0;   
+// Variable to keep track of number of measurements that have been taken
+int numMeasurements = 0;
+// Variable to determine what the time interval is between measurements (this is calculated by doing measureTime / 15)
+int measurementInterval = 0;
+// Total number of seconds since starting
+int numSeconds = 0;
 
 
 // Enumeration of state variable for the state machine
@@ -208,8 +211,6 @@ void loop(void) {
         currentState = measure;
       } else {
         currentState = wait;
-        // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-        countSeconds();
       }
       break;
     ////////////////////////////////////////////////////////////////////////////////////
@@ -225,8 +226,6 @@ void loop(void) {
         } else {}
         selectPushed = false;
       } else {
-        // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-        countSeconds();
         currentState = record;
       }
       break;
@@ -243,8 +242,6 @@ void loop(void) {
         } else {}
         selectPushed = false;
       }
-      // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-      countSeconds();
       // If the SD Card had an error, go to the ERROR state
       if (writeSuccess) {
         currentState = wait;
@@ -293,9 +290,6 @@ void loop(void) {
     case wait:
       // Draw wait screen
       printMeasureScreen(measureArrowPos, ppmCOcal, coRaw, pm2_5);
-
-      // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-      countSeconds();
       
       // Control toggle buttons
       measureWaitButtons();
@@ -306,8 +300,6 @@ void loop(void) {
     ////////////////////////////////////////////////////////////////////////////////////
     case measure:
       measureWaitButtons();
-      // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-      countSeconds();
 
       //          *************************************** PM measuring ***************************************
       
@@ -355,11 +347,22 @@ void loop(void) {
     ////////////////////////////////////////////////////////////////////////////////////
     case record:
       measureWaitButtons();
-      // I created a countSeconds function so that while the code is in this state it will be incrementing the second counter
-      countSeconds();
+
+      // calculate the measurement interval based on what was the measureTime value was set to in the options menu (default is 150)
+      // for the measureTime variable, every 15 is one second so the value 150 means a measurement every 10 seconds for example
+      measurementInterval = measureTime / 15;
+      numSeconds = numMeasurements * measurementInterval;
+      
+      // increment the number of measurements after the numSeconds has been calculated
+      numMeasurements += 1;
+      
+      // print to the serial monitor for viewing and debugging
+      Serial.print("numSeconds = ");
+      Serial.println(numSeconds);
 
       // we changed the ppmCO2 to coCal just for testing purposes *******************************************
-      writeSuccess = writeToFile(rtc.now(), ppmCOcal, coRaw, ppmCO2, co2Raw, pm2_5, pm10);
+      // I also put numSeconds in place of rtc.now(), which used to return a DateTime object from the rtc library. Now it's just a seconds counter
+      writeSuccess = writeToFile(numSeconds, ppmCOcal, coRaw, ppmCO2, co2Raw, pm2_5, pm10);
             
       break;
     ////////////////////////////////////////////////////////////////////////////////////
@@ -418,9 +421,9 @@ void optionsButtons() {
   // Select an option if select buttons is pushed
   if (selectPushed) {
     selectPushed = false;
-    if (optionsArrowPos == 20) { measureTime = 150; Serial.println("10 sec");}
-    else if (optionsArrowPos == 55) { measureTime = (150*3) + (15*5); Serial.println("30 sec");}
-    else if (optionsArrowPos == 92) { measureTime = (150*6) + (15*12); Serial.println("1 min");}
+    if (optionsArrowPos == 20) { measureTime = 150; Serial.println("10 sec"); }             /****upon testing, we discovered that this isn't a very accurate way of measuring time****/
+    else if (optionsArrowPos == 55) { measureTime = 450; Serial.println("30 sec");}
+    else if (optionsArrowPos == 92) { measureTime = 900; Serial.println("1 min");}
     else if (optionsArrowPos == 85) {  
       // Setup menu state for reentry
       Serial.println("Enter Menu State");
@@ -433,17 +436,6 @@ void optionsButtons() {
   }
 }
 
-int countSeconds() {
-  // Update the second counter if at least one second has passed
-  unsigned long currentMillis = millis();
-  if(currentMillis - lastSecondUpdate >= 1000) {
-    lastSecondUpdate = currentMillis;
-    secondsCounter++;
-    Serial.print("Seconds Counting: ");
-    Serial.println(secondsCounter);
-  }
-  return secondsCounter;
-}
 
 // Initializes all of the sensors
 void initSensors(bool pmInit, bool coInit, bool co2Init, bool rtcInit, bool sdInit) {
@@ -471,9 +463,10 @@ void initSensors(bool pmInit, bool coInit, bool co2Init, bool rtcInit, bool sdIn
   Serial.println("rtcInit");
   if (rtcInit) {
 
-    /*********** we have been having issues with the RTC keeping the correct date and time across days. We reset it and it is correct, then a couple weeks *************/
-    /*********** later is incorrect again. This is why we decided to implement the countSeconds() function to act as a simple seconds counter that increments *************/
-    /*********** whenever the system is in wait, measure and record states. *************/
+    /*********** We have been having issues with the RTC keeping the correct date and time across days. We reset it using the code below ( rtc.adjust() )  *************/
+    /*********** and it gets corrected, then only a couple weeks later we notice that the date and time is off again and we aren't sure why it's wrong     *************/
+    /*********** This is why we decided to implement the numSeconds variable that increments by the measurement interval each time a measurement is taken. *************/
+    /*********** It is a simple way of counting the number of seconds since starting measuring. To reset numSeconds to zero, arduino should be powered off *************/
     
     rtc.begin();  // Initializes real time clock, uses RTC library
     if (!rtc.isrunning()) {
